@@ -1,0 +1,200 @@
+#!/bin/bash
+
+COLOR_RED="\e[31;49m"
+COLOR_GREEN="\e[32;49m"
+COLOR_YELLO="\e[33;49m"
+COLOR_BLUE="\e[34;49m"
+COLOR_MAGENTA="\e[35;49m"
+COLOR_CYAN="\e[36;49m"
+COLOR_WHILE="\033[1m"
+COLOR_RESET="\e[0m"
+
+TRASH=$HOME/Trash
+LOGFILE="trash.log"
+
+usage()
+{
+    echo -e "Usage: trash [options] file1 [file2 file3....]\n"
+    echo -e "trash is a simple command line interface for deleting file to custom trash.\n"
+    echo "Options:"
+    echo "  -d  Empty the trash"
+    echo "  -f  Forced delete file"
+    echo "  -r  Restore the file in the trash"
+    echo "  -l  List the files in the trash"
+    echo "  -p  Print log file"
+    echo "  -h  Show this help message and exit"
+    echo "  -v  Show program's version number and exit"
+}
+
+if [ $# -eq 0 ]
+then
+    usage
+    exit 0
+fi
+
+debaroption()
+{
+    if [ $1 = "-d" -o $1 = "-f" -o $1 = "-r" -o $1 = "-l" -o $1 = "-p" -o $1 = "-v" -o $1 = "-h" ]
+    then
+        return 0
+    else
+        return 1
+    fi
+}
+
+force=0
+restore=0
+while getopts "dfrlpvh" opt
+do
+    case $opt in
+        d)  #if zenity --question --text "Are you sure you want to empty the trash ?"
+            echo -ne "Are you sure you want to empty the trash?[Y/N]:\a"
+            read reply
+            if [ $reply = "y" -o $reply = "Y" ]
+            then
+                for file in `ls -a ~/Trash/`
+                do
+                    if [ $file = "." -o $file = ".." ]
+                    then
+                        continue
+                    else
+                        echo "Removing forever ~/Trash/$file"
+                        rm -rf ~/Trash/$file
+                    fi
+                done
+            fi
+            echo "Done."
+            ;;
+        f)  #exec rm -rf "$@"
+            force=1
+            for file in $@
+            do
+                debaroption $file
+                ret=$?
+                if [ $ret -eq 1 ]
+                then
+                    echo "Removing $file"
+                    rm -rf $file
+                fi
+            done
+            echo "Done."
+            ;;
+        r)  # restore
+            restore=1
+            #if zenity --question --text "Are you sure you want to restore the file ?"
+            echo -ne "Are you sure you want to restore the file?[Y/N]:\a"
+            read reply
+            if [ $reply = "y" -o $reply = "Y" ]
+            then
+                for file in $@
+                do
+                    debaroption $file
+                    ret=$?
+                    if [ $ret -eq 1 ]
+                    then
+                        fullpath="$HOME/Trash/$file"
+                        if [ -f "$fullpath" -o -d "$fullpath" -o -h "$fullpath" -o -p "$fullpath" ]
+                        then
+                            originalpath=$(awk /$file/'{print $4}' "$HOME/Trash/$LOGFILE")
+                            #filenamenow=$(awk /$file/'{print $1}' "$HOME/Trash/$LOGFILE")
+                            filenamebefore=$(awk /$file/'{print $2}' "$HOME/Trash/$LOGFILE")
+                            echo "Restoring $file"
+                            mv -b "$HOME/Trash/$file" "$originalpath"
+                            sed -i "/$file/d" "$HOME/Trash/$LOGFILE"
+                        else
+                            echo -e "${COLOR_RED}There is no file in the trash.$COLOR_RESET"
+                        fi
+                    fi
+                done
+            fi
+            echo "Done."
+            ;;
+        p)  # print log_file
+            cat ~/Trash/$LOGFILE
+            ;;
+        l)  # list
+            ls -a ~/Trash/
+            ;;
+        v)  # version
+            echo "trash v0.1 (c) 2020 by euris."
+            ;;
+        h)  # help
+            usage
+            ;;
+        *)
+            usage
+            exit 0
+            ;;
+    esac
+done
+
+#### 删除到回收站
+if [ $force -eq 0 -a $restore -eq 0 ]
+then
+    for file in $@
+    do
+        debaroption $file
+        ret=$?
+        if [ $ret -eq 1 ]
+        then
+            filename="${file##*/}"
+            mark1=`expr substr $file 1 2`
+            mark2=`expr substr $file 1 1`
+            if [ $mark1 = "./" ]
+            then
+                fullpath="$(pwd)/$filename"
+            elif [ $mark2 = "/" ]
+            then
+                fullpath="$file"
+            else
+                fullpath="$(pwd)/$file"
+            fi
+
+            if [ -f "$fullpath" -o -d "$fullpath" -o -h "$fullpath" -o -p "$fullpath" ]
+            then
+                if [ -f "$file" ] && [ `ls -l $file | awk '{print $5}'` -gt 2147483648 ]
+                then
+                    #if zenity --question --text "$filename size is larger than 2G, will be deleted directly.\nSelect “No” to delete the trash."
+                    echo -ne "$filename size is larger than 2G, will be deleted directly.\nInput 'N' to delete the trash.[Y/N]:\a"
+                    read reply
+                    if [ $reply = "y" -o $reply = "Y" ]
+                    then
+                        echo -n "Removing $fullpath ... "
+                        rm -rf $fullpath
+                        echo "done."
+                    else
+                        echo -n "Deleting $fullpath ... "
+                        mv -f $fullpath ~/Trash/$filename
+                        echo $filename $fullpath >> ~/Trash/$LOGFILE
+                        echo "done."
+                    fi
+                elif [ -d "$file" ] && [ `du -sb $file | awk '{print $1}'` -gt 2147483648 ]
+                then
+                    #if zenity --question --text "The directory:$filename is larger than 2G, will be deleted directly.\nSelect “No” to delete the trash."
+                    echo -ne "The directory:$filename is larger than 2G, will be deleted directly.\nSelect “No” to delete the trash.\a"
+                    read reply
+                    if [ $reply = "y" -o $reply = "Y" ]
+                    then
+                        echo -n "Removing $fullpath ... "
+                        rm -rf $fullpath
+                        echo "done."
+                    else
+                        echo -n "Deleting $fullpath ... "
+                        mv -f $fullpath ~/Trash/$filename
+                        echo $filename $fullpath >> ~/Trash/$LOGFILE
+                        echo "done."
+                    fi
+                else
+                    echo -n "Deleting $fullpath ... "
+                    mv -f $fullpath ~/Trash/$filename
+                    echo $filename $fullpath >> ~/Trash/$LOGFILE
+                    echo "done."
+                fi
+            else
+                echo -e "${COLOR_RED}Could not delete the $fullpath!${COLOR_RESET}"
+            fi
+        fi
+    done
+fi
+
+exit 0
